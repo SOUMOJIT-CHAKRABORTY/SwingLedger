@@ -1,0 +1,17 @@
+spring:
+  application:
+    name: SwingLedger
+  datasource:
+    url: ${DB_URL:jdbc:h2:file:./data/swingledger;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE}
+    username: ${DB_USER:sa}
+    password: ${DB_PASSWORD:}
+  flyway:
+    enabled: true
+server:
+  address: ${SERVER_ADDRESS:127.0.0.1}
+  servlet:
+    session:
+      cookie:
+        http-only: true
+        same-site: strict
+      timeout: 60m

@@ -1,0 +1,44 @@
+# Paid resources: review Render's quoted price before creating this Blueprint.
+services:
+  - type: web
+    name: swingledger
+    runtime: docker
+    plan: starter
+    region: singapore
+    branch: main
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    autoDeployTrigger: "off"
+    healthCheckPath: /health
+    envVars:
+      - key: SPRING_PROFILES_ACTIVE
+        value: prod
+      - key: DB_HOST
+        fromDatabase:
+          name: swingledger-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: swingledger-db
+          property: port
+      - key: DB_NAME
+        fromDatabase:
+          name: swingledger-db
+          property: database
+      - key: DB_USER
+        fromDatabase:
+          name: swingledger-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: swingledger-db
+          property: password
+databases:
+  - name: swingledger-db
+    plan: 0.1c-256mb
+    diskSizeGB: 5
+    region: singapore
+    postgresMajorVersion: "17"
+    databaseName: swingledger
+    user: swingledger
+    ipAllowList: []

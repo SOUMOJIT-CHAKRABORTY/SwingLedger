@@ -1,0 +1,11 @@
+.git
+.metadata
+.pnpm-store
+**/node_modules
+**/target
+**/data
+**/.env
+.env*
+**/*.log
+server/src/main/resources/static
+server/docs

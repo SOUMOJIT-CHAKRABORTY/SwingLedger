@@ -1,0 +1,21 @@
+{
+  "name": "swingledger-ui",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "format": "prettier --write src",
+    "format:check": "prettier --check src"
+  },
+  "dependencies": {
+    "lucide-react": "0.468.0",
+    "react": "19.0.0",
+    "react-dom": "19.0.0"
+  },
+  "devDependencies": {
+    "prettier": "3.5.3",
+    "vite": "6.4.1"
+  }
+}

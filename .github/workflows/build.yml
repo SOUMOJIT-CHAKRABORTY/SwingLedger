@@ -1,0 +1,94 @@
+name: Build and test
+on: [push, pull_request]
+permissions:
+  contents: read
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Build React UI
+        working-directory: frontend
+        run: |
+          pnpm install --frozen-lockfile
+          node node_modules/vite/bin/vite.js build
+      - name: Compile and test
+        working-directory: server
+        run: mvn --batch-mode --no-transfer-progress clean verify
+  postgres-test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: swingledger_test
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: ephemeral_ci_only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U test_user -d swingledger_test"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      TEST_DB_URL: jdbc:postgresql://localhost:5432/swingledger_test
+      TEST_DB_USER: test_user
+      TEST_DB_PASSWORD: ephemeral_ci_only
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: mvn --batch-mode --no-transfer-progress test
+        working-directory: server
+  container-build:
+    name: Build production container
+    needs: [test, postgres-test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Docker build
+        run: docker build --tag swingledger:ci .
+  deploy:
+    name: Request production deployment
+    needs: [test, postgres-test, container-build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.RENDER_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
+    steps:
+      - name: Deploy the tested commit
+        env:
+          DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          python3 - <<'PY'
+          import os, sys, urllib.parse, urllib.request
+          hook = os.environ.get('DEPLOY_HOOK', '')
+          if not hook.startswith('https://api.render.com/deploy/'):
+              sys.exit('Set a valid RENDER_DEPLOY_HOOK_URL in the production environment.')
+          url = hook + ('&' if '?' in hook else '?') + urllib.parse.urlencode({'ref': os.environ['COMMIT_SHA']})
+          try:
+              with urllib.request.urlopen(urllib.request.Request(url, method='POST'), timeout=30) as response:
+                  if response.status != 200:
+                      sys.exit('Deployment queued rather than started. Check Render for the final outcome.')
+          except Exception:
+              sys.exit('Render did not confirm the deployment request. Check the hook and service dashboard.')
+          print('Render accepted the tested commit. Check its deployment dashboard for build and health status.')
+          PY
