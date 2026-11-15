@@ -32,7 +32,7 @@ services:
       DB_USER: swingledger
       DB_PASSWORD: ${POSTGRES_PASSWORD:?Database password is required}
       PORT: "8080"
-      SERVER_SERVLET_SESSION_COOKIE_SECURE: "false"
+      SERVER_SERVLET_SESSION_COOKIE_SECURE: "true"
 
 volumes:
   postgres_data:
