@@ -1,0 +1,156 @@
+name: Deploy to Oracle
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oracle-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    # Only deploy the main branch.
+    if: github.ref == 'refs/heads/main'
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: swingledger_test
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: ephemeral_ci_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U test_user -d swingledger_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    steps:
+      - name: Download repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: "11"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec vite build
+
+      - name: Test backend against PostgreSQL
+        working-directory: server
+        env:
+          TEST_DB_URL: jdbc:postgresql://localhost:5432/swingledger_test
+          TEST_DB_USER: test_user
+          TEST_DB_PASSWORD: ephemeral_ci_only
+        run: mvn --batch-mode --no-transfer-progress clean verify
+
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.ORACLE_KNOWN_HOSTS }}
+          ORACLE_HOST: ${{ secrets.ORACLE_HOST }}
+          ORACLE_USER: ${{ secrets.ORACLE_USER }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/oracle_deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/oracle_deploy ~/.ssh/known_hosts
+
+          cat > ~/.ssh/config <<EOF
+          Host oracle
+            HostName $ORACLE_HOST
+            User $ORACLE_USER
+            IdentityFile ~/.ssh/oracle_deploy
+            IdentitiesOnly yes
+            BatchMode yes
+            StrictHostKeyChecking yes
+            ConnectTimeout 20
+            ServerAliveInterval 30
+            ServerAliveCountMax 6
+          EOF
+          chmod 600 ~/.ssh/config
+
+      - name: Check deployment folder
+        run: |
+          ssh oracle '
+            test -d /opt/swingledger &&
+            test -s /opt/swingledger/.env &&
+            sudo -n docker compose version
+          '
+
+      - name: Upload source
+        run: |
+          rsync -az \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            --exclude='.env*' \
+            --exclude='node_modules/' \
+            --exclude='target/' \
+            --exclude='data/' \
+            --exclude='.metadata/' \
+            --exclude='.DS_Store' \
+            --exclude='*.log' \
+            ./ oracle:/opt/swingledger/
+
+      - name: Build and deploy
+        run: |
+          ssh oracle 'bash -se' <<'REMOTE'
+          cd /opt/swingledger
+
+          sudo -n docker compose \
+            -f compose.oracle.private.yaml config --quiet
+
+          sudo -n docker compose \
+            -f compose.oracle.private.yaml build app
+
+          sudo -n docker compose \
+            -f compose.oracle.private.yaml up -d
+
+          healthy=false
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent --max-time 5 \
+              http://127.0.0.1:8080/health > /dev/null; then
+              healthy=true
+              break
+            fi
+            sleep 5
+          done
+
+          if [ "$healthy" != true ]; then
+            sudo -n docker compose \
+              -f compose.oracle.private.yaml logs --tail=100 app
+            exit 1
+          fi
+
+          sudo -n docker compose \
+            -f compose.oracle.private.yaml ps
+          echo "SwingLedger is healthy."
+          REMOTE
+
+      - name: Remove deployment key
+        if: always()
+        run: rm -f ~/.ssh/oracle_deploy

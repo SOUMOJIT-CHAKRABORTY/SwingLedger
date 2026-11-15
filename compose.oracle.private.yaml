@@ -1,0 +1,38 @@
+name: swingledger
+
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: swingledger
+      POSTGRES_USER: swingledger
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Database password is required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U swingledger -d swingledger"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: swingledger
+      DB_USER: swingledger
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?Database password is required}
+      PORT: "8080"
+      SERVER_SERVLET_SESSION_COOKIE_SECURE: "false"
+
+volumes:
+  postgres_data:
