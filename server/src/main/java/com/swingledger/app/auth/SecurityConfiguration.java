@@ -2,6 +2,7 @@ package com.swingledger.app.auth;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.web.SecurityFilterChain;
@@ -9,10 +10,20 @@ import org.springframework.security.web.SecurityFilterChain;
 @Configuration
 public class SecurityConfiguration {
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain securityFilterChain(HttpSecurity http, Environment environment) throws Exception {
         // The public calculator is pure: it neither reads private data nor changes state.
         http.csrf(csrf -> csrf.ignoringRequestMatchers("/api/v1/risk/calculate"))
                 .authorizeHttpRequests(auth -> auth
+                        // Only Docker peers (or local development) can reach the separate management listener.
+                        .requestMatchers(request -> {
+                            int managementPort = environment.getProperty("local.management.port", Integer.class,
+                                    environment.getProperty("management.server.port", Integer.class, 9091));
+                            String path = request.getRequestURI();
+                            return request.getLocalPort() == managementPort && "GET".equals(request.getMethod())
+                                    && (path.equals("/actuator/prometheus") || path.equals("/actuator/health")
+                                        || path.equals("/actuator/health/readiness") || path.equals("/actuator/health/liveness"));
+                        }).permitAll()
+                        .requestMatchers("/actuator", "/actuator/**").denyAll()
                         .requestMatchers(HttpMethod.GET, "/", "/index.html", "/assets/**", "/health", "/api/v1/auth/csrf").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/register").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/risk/calculate").permitAll()

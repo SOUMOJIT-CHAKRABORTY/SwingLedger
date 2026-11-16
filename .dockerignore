@@ -9,3 +9,4 @@
 **/*.log
 server/src/main/resources/static
 server/docs
+secrets

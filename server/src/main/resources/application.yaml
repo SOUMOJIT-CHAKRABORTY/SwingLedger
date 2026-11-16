@@ -7,6 +7,34 @@ spring:
     password: ${DB_PASSWORD:}
   flyway:
     enabled: true
+management:
+  server:
+    port: 9091
+    address: 127.0.0.1
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+      discovery:
+        enabled: false
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState,db
+  metrics:
+    tags:
+      application: swingledger
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      minimum-expected-value:
+        http.server.requests: 1ms
+      maximum-expected-value:
+        http.server.requests: 10s
 server:
   address: ${SERVER_ADDRESS:127.0.0.1}
   servlet:
